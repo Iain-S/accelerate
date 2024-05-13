@@ -364,37 +364,11 @@ def prepare_deepspeed_cmd_env(args: argparse.Namespace) -> Tuple[List[str], Dict
             current_env["ASCEND_RT_VISIBLE_DEVICES"] = gpu_ids
         else:
             current_env["CUDA_VISIBLE_DEVICES"] = gpu_ids
-    try:
-        mixed_precision = PrecisionType(args.mixed_precision.lower())
-    except ValueError:
-        raise ValueError(
-            f"Unknown mixed_precision mode: {args.mixed_precision.lower()}. Choose between {PrecisionType.list()}."
-        )
 
     current_env["PYTHONPATH"] = env_var_path_add("PYTHONPATH", os.path.abspath("."))
     current_env["ACCELERATE_MIXED_PRECISION"] = str(mixed_precision)
     current_env["ACCELERATE_CONFIG_DS_FIELDS"] = str(args.deepspeed_fields_from_accelerate_config).lower()
     current_env["ACCELERATE_USE_DEEPSPEED"] = "true"
-    if args.zero_stage is not None:
-        current_env["ACCELERATE_DEEPSPEED_ZERO_STAGE"] = str(args.zero_stage)
-    if args.gradient_accumulation_steps is not None:
-        current_env["ACCELERATE_GRADIENT_ACCUMULATION_STEPS"] = str(args.gradient_accumulation_steps)
-    if args.gradient_clipping is not None:
-        current_env["ACCELERATE_GRADIENT_CLIPPING"] = str(args.gradient_clipping).lower()
-    if args.offload_optimizer_device is not None:
-        current_env["ACCELERATE_DEEPSPEED_OFFLOAD_OPTIMIZER_DEVICE"] = str(args.offload_optimizer_device).lower()
-    if args.offload_param_device is not None:
-        current_env["ACCELERATE_DEEPSPEED_OFFLOAD_PARAM_DEVICE"] = str(args.offload_param_device).lower()
-    if args.zero3_init_flag is not None:
-        current_env["ACCELERATE_DEEPSPEED_ZERO3_INIT"] = str(args.zero3_init_flag).lower()
-    if args.zero3_save_16bit_model is not None:
-        current_env["ACCELERATE_DEEPSPEED_ZERO3_SAVE_16BIT_MODEL"] = str(args.zero3_save_16bit_model).lower()
-    if args.deepspeed_config_file is not None:
-        current_env["ACCELERATE_DEEPSPEED_CONFIG_FILE"] = str(args.deepspeed_config_file)
-    if args.enable_cpu_affinity:
-        current_env["ACCELERATE_CPU_AFFINITY"] = "1"
-    if args.deepspeed_moe_layer_cls_names is not None:
-        current_env["ACCELERATE_DEEPSPEED_MOE_LAYER_CLS_NAMES"] = str(args.deepspeed_moe_layer_cls_names)
     return cmd, current_env
 
 

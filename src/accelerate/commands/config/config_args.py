@@ -22,7 +22,7 @@ from typing import List, Optional, Union
 
 import yaml
 
-from ...utils import ComputeEnvironment, DistributedType, SageMakerDistributedType
+from ...utils import ComputeEnvironment, DistributedType, SageMakerDistributedType, PrecisionType
 from ...utils.constants import SAGEMAKER_PYTHON_VERSION, SAGEMAKER_PYTORCH_VERSION, SAGEMAKER_TRANSFORMERS_VERSION
 
 
@@ -38,6 +38,15 @@ if os.path.isfile(default_yaml_config_file) or not os.path.isfile(default_json_c
     default_config_file = default_yaml_config_file
 else:
     default_config_file = default_json_config_file
+
+
+def set_env(env: dict):
+    """Set the environment variables from a dictionary."""
+    for key, value in env.items():
+        old_value = os.environ.get(key)
+        if old_value != value:
+            print("Overriding", key, "to", value, "from", old_value)
+        os.environ[key] = str(value)
 
 
 def load_config_from_file(config_file):
@@ -74,11 +83,54 @@ def load_config_from_file(config_file):
 
 @dataclass
 class BaseConfig:
-    compute_environment: ComputeEnvironment
-    distributed_type: Union[DistributedType, SageMakerDistributedType]
-    mixed_precision: str
-    use_cpu: bool
-    debug: bool
+    compute_environment: Optional[ComputeEnvironment]
+    distributed_type: Optional[Union[DistributedType, SageMakerDistributedType]]
+    mixed_precision: Optional[PrecisionType]
+    use_cpu: Optional[bool]
+    debug: Optional[bool]
+
+    def from_args(self, args):
+        """Populate the config from `accelerate launch` CLI arguments."""
+        # todo sagemaker args
+        self.compute_environment = ComputeEnvironment.LOCAL_MACHINE
+
+        if sum([args.multi_gpu, args.cpu, args.tpu, args.use_deepspeed, args.use_fsdp]) > 1:
+            raise ValueError(
+                "You can only use one of `--cpu`, `--multi_gpu`, `--tpu`, `--use_deepspeed`, `--use_fsdp` at a time."
+            )
+        if args.use_cpu:
+            self.distributed_type = DistributedType.NO
+        elif args.multi_gpu:
+            self.distributed_type = DistributedType.MULTI_GPU
+        elif args.tpu:
+            self.distributed_type = DistributedType.XLA
+        elif args.use_deepspeed:
+            self.distributed_type = DistributedType.DEEPSPEED
+        elif args.use_fsdp:
+            self.distributed_type = DistributedType.FSDP
+        elif args.use_megatron_lm:
+            self.distributed_type = DistributedType.MEGATRON
+
+        try:
+            self.mixed_precision = PrecisionType(args.mixed_precision.lower())
+        except ValueError:
+            raise ValueError(
+                f"Unknown mixed_precision mode: {args.mixed_precision.lower()}. Choose between {PrecisionType.list()}."
+            )
+        self.use_cpu = args.use_cpu
+
+    def to_env(self):
+        """Populate the environment variables from the config."""
+        env = {}
+        if self.use_cpu:
+            env["ACCELERATE_USE_CPU"] = "1"
+        if self.mixed_precision:
+        set_env(env)
+
+    def from_env(self):
+        """Populate the config from env variables."""
+        pass
+
 
     def to_dict(self):
         result = self.__dict__
@@ -185,30 +237,96 @@ class ClusterConfig(BaseConfig):
     enable_cpu_affinity: bool = False
 
     # args for deepspeed_plugin
-    deepspeed_config: dict = None
+    deepspeed_config: Optional[dict] = None
     # args for fsdp
-    fsdp_config: dict = None
+    fsdp_config: Optional[dict] = None
     # args for megatron_lm
-    megatron_lm_config: dict = None
+    megatron_lm_config: Optional[dict] = None
     # args for ipex
-    ipex_config: dict = None
+    ipex_config: Optional[dict] = None
     # args for mpirun
-    mpirun_config: dict = None
+    mpirun_config: Optional[dict] = None
     # args for TPU
     downcast_bf16: bool = False
 
     # args for TPU pods
-    tpu_name: str = None
-    tpu_zone: str = None
+    tpu_name: Optional[str] = None
+    tpu_zone: Optional[str] = None
     tpu_use_cluster: bool = False
     tpu_use_sudo: bool = False
-    command_file: str = None
-    commands: List[str] = None
-    tpu_vm: List[str] = None
-    tpu_env: List[str] = None
+    command_file: Optional[str] = None
+    commands: Optional[List[str]] = None
+    tpu_vm: Optional[List[str]] = None
+    tpu_env: Optional[List[str]] = None
 
     # args for dynamo
-    dynamo_config: dict = None
+    dynamo_config: Optional[dict] = None
+
+    def from_args(self, args):
+        """Populate the config from `accelerate launch` CLI arguments."""
+        if args.num_processes is not None:
+            self.num_processes = args.num_processes
+        if args.machine_rank is not None:
+            self.machine_rank = args.machine_rank
+        if args.num_machines is not None:
+            self.num_machines = args.num_machines
+        self.gpu_ids = args.gpu_ids if args.gpu_ids is not None else "all"
+        if args.main_process_ip is not None:
+            self.main_process_ip = args.main_process_ip
+        if args.main_process_port is not None:
+            self.main_process_port = args.main_process_port
+        if args.rdzv_backend is not None:
+            self.rdzv_backend = args.rdzv_backend
+        if args.same_network is not None:
+            self.same_network = args.same_network
+        if args.main_training_function is not None:
+            self.main_training_function = args.main_training_function
+        if args.main_training_function is not None:
+            self.ipex_config = args.ipex_config
+        if args.main_training_function is not None:
+            self.mpirun_config = args.mpirun_config
+        # if args.main_training_function is not None:
+        #     self.dynamo_config = args.dynamo_config
+        # if args.deepspeed_config is not None:
+        #     self.deepspeed_config = args.deepspeed_config
+        # if args.main_training_function is not None:
+        #     self.fsdp_config = args.fsdp_config
+        # if args.main_training_function is not None:
+        #     self.megatron_lm_config = args.megatron_lm_config
+        if args.enable_cpu_affinity:
+            self.enable_cpu_affinity = args.enable_cpu_affinity
+
+    def to_env(self):
+        """Populate the environment variables from the config."""
+        super().to_env()
+
+        env = {}
+        if self.enable_cpu_affinity:
+            env["ACCELERATE_CPU_AFFINITY"] = "1"
+        if self.deepspeed_config:
+            if self.deepspeed_config.get("zero_stage"):
+                env["ACCELERATE_DEEPSPEED_ZERO_STAGE"] = str(self.)
+        if self.gradient_accumulation_steps is not None:
+            env["ACCELERATE_GRADIENT_ACCUMULATION_STEPS"] = str(self.gradient_accumulation_steps)
+        if self.gradient_clipping is not None:
+            env["ACCELERATE_GRADIENT_CLIPPING"] = str(self.gradient_clipping).lower()
+        if self.offload_optimizer_device is not None:
+            env["ACCELERATE_DEEPSPEED_OFFLOAD_OPTIMIZER_DEVICE"] = str(self.offload_optimizer_device).lower()
+        if self.offload_param_device is not None:
+            env["ACCELERATE_DEEPSPEED_OFFLOAD_PARAM_DEVICE"] = str(self.offload_param_device).lower()
+        if self.zero3_init_flag is not None:
+            env["ACCELERATE_DEEPSPEED_ZERO3_INIT"] = str(self.zero3_init_flag).lower()
+        if self.zero3_save_16bit_model is not None:
+            env["ACCELERATE_DEEPSPEED_ZERO3_SAVE_16BIT_MODEL"] = str(self.zero3_save_16bit_model).lower()
+        if self.deepspeed_config_file is not None:
+            env["ACCELERATE_DEEPSPEED_CONFIG_FILE"] = str(self.deepspeed_config_file)
+        if self.enable_cpu_affinity:
+            env["ACCELERATE_CPU_AFFINITY"] = "1"
+        if self.deepspeed_moe_layer_cls_names is not None:
+            env["ACCELERATE_DEEPSPEED_MOE_LAYER_CLS_NAMES"] = str(self.deepspeed_moe_layer_cls_names)
+        set_env(env)
+
+
 
     def __post_init__(self):
         if self.deepspeed_config is None:

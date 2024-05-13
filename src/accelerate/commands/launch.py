@@ -936,11 +936,6 @@ def _validate_launch_command(args):
             args.use_fsdp = defaults.distributed_type == DistributedType.FSDP
             args.use_megatron_lm = defaults.distributed_type == DistributedType.MEGATRON_LM
             args.tpu_use_cluster = defaults.tpu_use_cluster if args.tpu else False
-        if args.gpu_ids is None:
-            if defaults.gpu_ids is not None:
-                args.gpu_ids = defaults.gpu_ids
-            else:
-                args.gpu_ids = "all"
 
         if args.multi_gpu and args.num_machines is None:
             args.num_machines = defaults.num_machines
